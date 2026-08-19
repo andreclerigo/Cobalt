@@ -1,0 +1,7 @@
+{$READING_LIST_HOST} {
+    encode zstd gzip
+    log {
+        output discard
+    }
+    reverse_proxy bridge:8000
+}

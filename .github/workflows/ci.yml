@@ -8,6 +8,26 @@ permissions:
   contents: read
 
 jobs:
+  papers-bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/papers-bridge
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install the locked Python project manager
+        run: python3 -m pip install --user uv==0.8.11
+      - run: python3 -m uv sync --frozen --group dev
+      - run: python3 -m uv run ruff check .
+      - run: python3 -m uv run mypy src
+      - run: python3 -m uv run pytest
+      - run: docker compose config --quiet
+        env:
+          PAPERS_BRIDGE_ENV_FILE: .env.example
+          READING_LIST_HOST: papers.invalid
+          READING_LIST_CACHE_PATH: /tmp/cobalt-papers-cache
+          DOCLING_SERVE_API_KEY: compose-validation-only
+
   host:
     runs-on: ubuntu-latest
     steps:

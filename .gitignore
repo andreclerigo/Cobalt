@@ -12,6 +12,7 @@ secrets/
 *.key
 .env
 .env.*
+!services/papers-bridge/.env.example
 .openai
 .anthropic
 .credentials

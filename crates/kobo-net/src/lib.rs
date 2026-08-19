@@ -207,6 +207,13 @@ const AUDIOBOOK_VOICES: [&str; 6] = [
 /// hardware. That is the one thing this project is arranged to avoid.
 #[must_use]
 pub fn credential_allowed(app: &str, credential: &Credential, url: &str) -> bool {
+    if app == "reading-list" {
+        return reading_list_credential_allowed(
+            option_env!("READING_LIST_ORIGIN"),
+            credential,
+            url,
+        );
+    }
     if app == "audiobook" {
         return match (&*credential.secret, &credential.header) {
             ("exa", SecretHeader::Named(header)) => {
@@ -251,6 +258,45 @@ pub fn credential_allowed(app: &str, credential: &Credential, url: &str) -> bool
         }
         _ => false,
     }
+}
+
+/// Binds the personal Reading List token to the exact origin compiled into
+/// this Cobalt build and to its versioned API subtree.
+///
+/// Kept as a helper so negative policy tests can exercise a representative
+/// origin even when an ordinary workspace build intentionally has no personal
+/// endpoint configured.
+fn reading_list_credential_allowed(
+    configured: Option<&str>,
+    credential: &Credential,
+    url: &str,
+) -> bool {
+    let Some(configured) = configured else {
+        return false;
+    };
+    let Ok(origin) = parse(configured) else {
+        return false;
+    };
+    if origin.path != "/" || origin.port != 443 || configured.ends_with('/') {
+        return false;
+    }
+    if credential.secret != "reading-list" || credential.header != SecretHeader::Bearer {
+        return false;
+    }
+    parse(url).is_ok_and(|target| {
+        target.host.eq_ignore_ascii_case(&origin.host)
+            && target.port == origin.port
+            && reading_list_api_path(&target.path)
+    })
+}
+
+fn reading_list_api_path(path_and_query: &str) -> bool {
+    let path = path_and_query
+        .split_once('?')
+        .map_or(path_and_query, |(path, _)| path);
+    path.starts_with("/v1/")
+        && !path.contains(['%', '\\'])
+        && !path.split('/').any(|part| matches!(part, "." | ".."))
 }
 
 /// What a server said, once the status line has been understood.
@@ -558,9 +604,17 @@ fn get(
     headers: &[(&str, &str)],
 ) -> Result<Vec<u8>, TaskError> {
     let mut target = url.to_string();
+    let mut forwarded = headers;
     for _ in 0..=MAX_REDIRECTS {
         let address = parse(&target)?;
-        let response = request(&address, &Method::Get { offset, headers }, max_bytes)?;
+        let response = request(
+            &address,
+            &Method::Get {
+                offset,
+                headers: forwarded,
+            },
+            max_bytes,
+        )?;
         match split_response(&response, max_bytes)? {
             Response::Body(body) => {
                 return if body.len() > max_bytes as usize {
@@ -569,10 +623,46 @@ fn get(
                     Ok(body.to_vec())
                 };
             }
-            Response::Redirect(location) => target = resolve_redirect(&address, &location)?,
+            Response::Redirect(location) => {
+                let next = resolve_redirect(&address, &location)?;
+                let next_address = parse(&next)?;
+                // Application headers and runtime-owned credential headers
+                // are deliberately indistinguishable here. Neither crosses
+                // an origin boundary: otherwise an allowed endpoint could
+                // redirect an Authorization header to an attacker. Range is
+                // derived from `offset`, not carried in this slice, so long
+                // downloads still ask for the correct piece.
+                forwarded = redirect_headers(&address, &next_address, forwarded)?;
+                target = next;
+            }
         }
     }
     Err(TaskError::Unreachable)
+}
+
+fn redirect_headers<'a>(
+    current: &Address,
+    next: &Address,
+    headers: &'a [(&'a str, &'a str)],
+) -> Result<&'a [(&'a str, &'a str)], TaskError> {
+    if next.host.eq_ignore_ascii_case(&current.host) && next.port == current.port {
+        if headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+            && reading_list_api_path(&current.path)
+            && !reading_list_api_path(&next.path)
+        {
+            return Err(TaskError::Denied);
+        }
+        return Ok(headers);
+    }
+    if headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+    {
+        return Err(TaskError::Denied);
+    }
+    Ok(&[])
 }
 
 /// What is sent, beyond the address.
@@ -1250,6 +1340,70 @@ mod tests {
         ] {
             assert!(!super::credential_allowed("audiobook", &elevenlabs, url));
         }
+    }
+
+    #[test]
+    fn reading_list_token_is_bound_to_one_api_origin() {
+        use kobo_protocol::Credential;
+
+        let token = Credential::bearer("reading-list");
+        let origin = Some("https://papers.example.com");
+        for url in [
+            "https://papers.example.com/v1/collections",
+            "https://papers.example.com/v1/items/ITEM1/document",
+            "https://papers.example.com/v1/items/ITEM1/figures/figure-001.png",
+        ] {
+            assert!(super::reading_list_credential_allowed(origin, &token, url));
+        }
+        for url in [
+            "http://papers.example.com/v1/collections",
+            "https://papers.example.com:8443/v1/collections",
+            "https://user@papers.example.com/v1/collections",
+            "https://papers.example.com.attacker.invalid/v1/collections",
+            "https://sub.papers.example.com/v1/collections",
+            "https://papers.example.com/not-v1/collections",
+            "https://papers.example.com/v10/collections",
+            "https://papers.example.com/v1/../private",
+            "https://papers.example.com/v1/%2e%2e/private",
+        ] {
+            assert!(!super::reading_list_credential_allowed(origin, &token, url));
+        }
+        assert!(!super::reading_list_credential_allowed(
+            origin,
+            &Credential::bearer("other"),
+            "https://papers.example.com/v1/collections"
+        ));
+        assert!(!super::reading_list_credential_allowed(
+            None,
+            &token,
+            "https://papers.example.com/v1/collections"
+        ));
+    }
+
+    #[test]
+    fn a_bearer_credential_refuses_a_cross_origin_redirect() {
+        let current =
+            super::parse("https://papers.example.com/v1/items/ITEM1").expect("current origin");
+        let sibling =
+            super::parse("https://cdn.papers.example.com/document").expect("redirect origin");
+        let same = super::parse("https://papers.example.com/v1/items/ITEM1/document")
+            .expect("same origin");
+        let same_host_outside_api =
+            super::parse("https://papers.example.com/admin").expect("same host, wrong path");
+        let credential = [("Authorization", "Bearer private")];
+
+        assert_eq!(
+            super::redirect_headers(&current, &sibling, &credential),
+            Err(TaskError::Denied)
+        );
+        assert_eq!(
+            super::redirect_headers(&current, &same, &credential),
+            Ok(&credential[..])
+        );
+        assert_eq!(
+            super::redirect_headers(&current, &same_host_outside_api, &credential),
+            Err(TaskError::Denied)
+        );
     }
 
     use super::has_default_route;

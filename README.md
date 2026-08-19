@@ -73,7 +73,7 @@ utilities.
 </tr>
 <tr>
 <td valign="top"><a href="examples/magnet/README.md"><img width="230" src="examples/magnet/screenshots/counting.png" alt="The Kobo hall sensor responding to a magnet"></a><br><b><a href="examples/magnet/README.md">Magnet</a></b><br>Locates the hall sensor behind the bezel and reports its changes.</td>
-<td></td>
+<td valign="top"><b><a href="examples/reading-list/README.md">Reading List</a></b><br>A personal managed built-in for an allowlisted Zotero collection, backed by the owner-operated <a href="services/papers-bridge/README.md">papers bridge</a>. It is intentionally absent from the public Store.</td>
 <td></td>
 </tr>
 </table>
@@ -179,6 +179,7 @@ capabilities, testing, and release details.
 |---|---|
 | `apps/` | Store applications and release registry |
 | `examples/` | Built-in applications and SDK examples |
+| `services/papers-bridge` | Personal read-only Zotero and Docling conversion bridge |
 | `crates/kobo-sdk` | Public application SDK |
 | `crates/kobod` | Device runtime |
 | `crates/kobo-ui` | Layout and e-ink renderer |

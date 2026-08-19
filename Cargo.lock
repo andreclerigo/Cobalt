@@ -637,6 +637,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kobo-reading-list"
+version = "0.2.6"
+dependencies = [
+ "kobo-bookview",
+ "kobo-doc",
+ "kobo-json",
+ "kobo-read",
+ "kobo-sdk",
+]
+
+[[package]]
 name = "kobo-rss"
 version = "0.2.6"
 dependencies = [

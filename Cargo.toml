@@ -43,6 +43,7 @@ members = [
     "examples/hn",
     "examples/launcher",
     "examples/magnet",
+    "examples/reading-list",
     "examples/settings",
     "examples/sidekick",
     "examples/store",

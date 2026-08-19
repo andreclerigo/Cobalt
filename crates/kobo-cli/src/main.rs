@@ -51,6 +51,7 @@ const INSTALLED_PACKAGES: &[(&str, Option<&str>)] = &[
     ("kobo-gallery", None),
     ("kobo-tictactoe", None),
     ("kobo-magnet", None),
+    ("kobo-reading-list", None),
     ("kobo-hn", None),
     ("kobo-rss", None),
     ("kobo-settings", None),

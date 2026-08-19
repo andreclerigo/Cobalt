@@ -1,0 +1,70 @@
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      READING_LIST_HOST: ${READING_LIST_HOST:?set READING_LIST_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      bridge:
+        condition: service_healthy
+    networks:
+      - frontend
+
+  bridge:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: ${PAPERS_BRIDGE_ENV_FILE:-.env}
+        required: true
+    expose:
+      - "8000"
+    volumes:
+      - ${READING_LIST_CACHE_PATH:?set READING_LIST_CACHE_PATH}:/var/lib/papers-bridge/cache
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      docling:
+        condition: service_healthy
+    networks:
+      - frontend
+      - conversion
+
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu:v1.30.0
+    restart: unless-stopped
+    expose:
+      - "5001"
+    environment:
+      DOCLING_SERVE_API_KEY: ${DOCLING_SERVE_API_KEY:?set DOCLING_SERVE_API_KEY}
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "false"
+      UVICORN_WORKERS: "1"
+    volumes:
+      - docling_models:/opt/app-root/src/.cache
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    networks:
+      - conversion
+
+volumes:
+  caddy_data:
+  caddy_config:
+  docling_models:
+
+networks:
+  frontend:
+  conversion:
+    internal: true

@@ -101,6 +101,15 @@ const MANAGED_BUILTINS: &[BuiltinApp] = &[
         capabilities: &["cover-sensor"],
     },
     BuiltinApp {
+        id: "reading-list",
+        title: "Reading List",
+        label: "Reading List",
+        summary: "Read one private Zotero collection and keep converted papers offline.",
+        version: "0.1.0",
+        glyph: Glyph::Note,
+        capabilities: &["network", "frontlight-control"],
+    },
+    BuiltinApp {
         id: "rss",
         title: "Feeds",
         label: "Feeds",
@@ -1263,5 +1272,12 @@ mod tests {
         assert!(kobo_app_store::cobalt_version_at_least("0.2.0", "0.1.9"));
         assert!(!kobo_app_store::cobalt_version_at_least("0.1.8", "0.1.9"));
         assert!(!kobo_app_store::cobalt_version_at_least("nightly", "0.1.9"));
+    }
+
+    #[test]
+    fn reading_list_is_a_managed_builtin_with_only_its_required_capabilities() {
+        let app = managed_builtin("reading-list").expect("Reading List built-in");
+        assert_eq!(app.capabilities, ["network", "frontlight-control"]);
+        assert_eq!(app.title, "Reading List");
     }
 }
